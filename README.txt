@@ -48,7 +48,7 @@ python main.py
 
 Estructura del proyecto
 .
-├── data/                        # Datos crudos y transformados
+├── data_lake/                        # Datos crudos y transformados
     ├── flights/                 # datos temporales
     └── airports/                # datos estáticos
 ├── src/
