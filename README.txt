@@ -48,15 +48,19 @@ python main.py
 
 Estructura del proyecto
 .
+├── data/                # Datos crudos y transformados
+├── proyectoELT/         # venv
 ├── src/
 │   ├── extract.py       # Consulta a AviationStack
 │   ├── load.py          # Carga a Delta Lake o CSV
 │   ├── transform.py     # Transformaciones de datos
 │   └── utils.py         # Helpers
-├── data/                # Datos crudos y transformados
-├── requirements.txt
+├── .gitignore
 ├── LICENSE
-└── README.md
+├── notebook.ipybn       # Notebook del proyecto
+├── pipeline.config      # Configuración de claves
+├── README.md
+└── requirements.txt
 
 Recursos
 
