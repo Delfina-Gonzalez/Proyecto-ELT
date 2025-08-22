@@ -19,6 +19,7 @@ proyectoELT/
 *.json
 *.yaml
 *.yml
+pipeline.config 
 
 # --- Jupyter Notebooks ---
 .ipynb_checkpoints/
