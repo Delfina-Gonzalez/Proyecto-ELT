@@ -5,15 +5,67 @@ from deltalake import write_deltalake, DeltaTable
 from deltalake.exceptions import TableNotFoundError
 from utils import log
 
-flights_raw_path = "../data_lake/flights/processed"
-airports_raw_path = "../data_lake/airports/processed"
-processed_enriched_path = "../data_lake/flights/processed_enriched_pandas"
-agg_path = "../data_lake/flights/agg_by_status"
+# ----------------------------------------------------
+# Rutas de las tablas Delta Lake
+# ----------------------------------------------------
+script_dir = os.path.dirname(os.path.abspath(__file__))
+base_path = os.path.dirname(script_dir)
 
+flights_raw_path = os.path.join(base_path, "data_lake", "flights", "processed")
+airports_raw_path = os.path.join(base_path, "data_lake", "airports", "processed")
+processed_enriched_path = os.path.join(base_path, "data_lake", "flights", "processed_enriched_pandas")
+agg_path = os.path.join(base_path, "data_lake", "flights", "agg_by_status")
+
+def save_delta_table_robust(
+    df_pandas: pd.DataFrame,
+    path: str,
+    mode: str = "append",
+    partition_cols: list | None = None,
+    hard_overwrite: bool = False,
+):
+    """
+    Guarda un DataFrame en Delta Lake, rellenando valores nulos para evitar errores.
+    """
+    if df_pandas is None or df_pandas.empty:
+        log("⚠️ DataFrame vacío; no se escribe nada.")
+        return
+
+    for col in df_pandas.columns:
+        dtype = df_pandas[col].dtype
+        if pd.api.types.is_numeric_dtype(dtype):
+            df_pandas[col] = df_pandas[col].astype('float64').fillna(0)
+        elif pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype):
+            df_pandas[col] = df_pandas[col].astype('string').fillna('')
+        elif pd.api.types.is_bool_dtype(dtype):
+            df_pandas[col] = df_pandas[col].astype('boolean').fillna(False)
+        else:
+            df_pandas[col] = df_pandas[col].fillna('')
+    
+    if partition_cols:
+        for col in partition_cols:
+            if col not in df_pandas.columns:
+                raise ValueError(f"❌ Columna de partición '{col}' no existe en el DataFrame.")
+            df_pandas[col] = df_pandas[col].fillna("unknown").astype("string")
+
+    if hard_overwrite and os.path.exists(path):
+        try:
+            shutil.rmtree(path)
+            log(f"🧹 Eliminada tabla Delta existente en {path} (hard overwrite).")
+        except Exception as e:
+            log(f"⚠️ No se pudo eliminar {path}: {e}")
+
+    write_deltalake(
+        path,
+        df_pandas,
+        mode=("overwrite" if hard_overwrite else mode),
+        partition_by=partition_cols,
+    )
+    log(f"✅ Guardado {len(df_pandas)} filas en {path} (modo={'overwrite' if hard_overwrite else mode}, partition_by={partition_cols})")
 
 def load_data():
     """Carga tablas Delta Lake como DataFrames de Pandas."""
     try:
+        log("🔄 Cargando tablas Delta...")
         df_flights = DeltaTable(flights_raw_path).to_pandas()
         df_airports = DeltaTable(airports_raw_path).to_pandas()
         log(f"✅ Cargados {len(df_flights)} vuelos y {len(df_airports)} aeropuertos.")
@@ -22,175 +74,97 @@ def load_data():
         log(f"❌ No se pudieron cargar tablas Delta: {e}")
         raise SystemExit(1)
 
+def clean_and_normalize(df: pd.DataFrame, col: str) -> pd.DataFrame:
+    """Aplana una columna JSON anidada y la une al DataFrame principal."""
+    if col in df.columns:
+        normalized_df = pd.json_normalize(df[col]).add_prefix(f"{col}_")
+        return df.drop(col, axis=1).merge(normalized_df, left_index=True, right_index=True)
+    return df
 
-def clean_flights(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aplana JSON (departure, arrival, airline, flight, aircraft, live),
-    convierte tipos, maneja nulos y elimina duplicados.
-    """
-    if df is None or df.empty:
-        log("⚠️ df_flights vacío en clean_flights.")
-        return pd.DataFrame()
+def clean_and_enrich_data(df_flights: pd.DataFrame, df_airports: pd.DataFrame) -> pd.DataFrame:
+    """Realiza la limpieza y el enriquecimiento de los datos de vuelos."""
+    log("🧹 Limpiando y aplanando DataFrame de vuelos...")
+    
+    for col in ["departure", "arrival", "airline", "flight", "aircraft", "live"]:
+        df_flights = clean_and_normalize(df_flights, col)
 
-    # Aplanar estructuras anidadas
-    df_norm = pd.json_normalize(df.to_dict("records"), sep="_")
+    df_flights.rename(columns={
+        'departure_iata': 'departure_iata_code',
+        'arrival_iata': 'arrival_iata_code',
+        'airline_iata': 'airline_iata_code',
+        'aircraft_icao': 'aircraft_icao_code',
+        'flight_date': 'flight_date',
+        'flight_status': 'status'
+    }, inplace=True)
 
-    # Convertir delays a numéricos
-    for col in ["departure_delay", "arrival_delay"]:
-        if col in df_norm.columns:
-            df_norm[col] = pd.to_numeric(df_norm[col], errors="coerce").fillna(0)
-        else:
-            df_norm[col] = 0
-
-    # Rellenar nulos SOLO en columnas object para evitar FutureWarning
-    obj_cols = df_norm.select_dtypes(include=["object"]).columns
-    df_norm[obj_cols] = df_norm[obj_cols].fillna("N/A")
-
-    # Columnas críticas que el pipeline espera
-    required_cols = [
-        "departure_iata",
-        "arrival_iata",
-        "flight_status",
-        "flight_date",
-        "aircraft_icao",
-    ]
+    log("🤝 Enriqueciendo datos...")
+    
+    # Asegurar que las columnas de unión existan
+    required_cols = ['departure_iata_code', 'arrival_iata_code']
     for col in required_cols:
-        if col not in df_norm.columns:
-            df_norm[col] = "N/A"
+        if col not in df_flights.columns:
+            df_flights[col] = pd.NA
 
-    # Eliminar duplicados
-    before = len(df_norm)
-    df_norm.drop_duplicates(inplace=True)
-    log(f"✅ Eliminados {before - len(df_norm)} duplicados.")
+    df_airports_dep = df_airports.rename(columns={
+        "iata_code": "departure_iata_code",
+        "airport_name": "departure_airport_name"
+    })
+    df_enriched = pd.merge(df_flights, df_airports_dep, on="departure_iata_code", how="left")
 
-    return df_norm
+    df_airports_arr = df_airports.rename(columns={
+        "iata_code": "arrival_iata_code",
+        "airport_name": "arrival_airport_name"
+    })
+    df_enriched = pd.merge(df_enriched, df_airports_arr, on="arrival_iata_code", how="left")
 
-
-def enrich_flights(df_flights: pd.DataFrame, df_airports: pd.DataFrame) -> pd.DataFrame:
-    """
-    Une vuelos con aeropuertos (por departure_iata) y crea columnas derivadas.
-    """
-    if df_flights is None or df_flights.empty:
-        log("⚠️ DataFrame de vuelos vacío en enrich_flights.")
-        return pd.DataFrame()
-
-    df_enriched = df_flights.copy()
-
-    # Asegurar departure_iata como string
-    if "departure_iata" not in df_enriched.columns:
-        df_enriched["departure_iata"] = "N/A"
-    df_enriched["departure_iata"] = df_enriched["departure_iata"].astype(str)
-
-    # Join con aeropuertos si hay datos
-    if df_airports is not None and not df_airports.empty:
-        airports = df_airports.copy()
-        # Normalizar IATA de aeropuertos
-        if "iata_code" not in airports.columns:
-            # fallback: algunos dumps usan 'iata'
-            if "iata" in airports.columns:
-                airports.rename(columns={"iata": "iata_code"}, inplace=True)
-            else:
-                airports["iata_code"] = "N/A"
-
-        # Tomar una columna de nombre de aeropuerto disponible
-        name_col = "airport_name" if "airport_name" in airports.columns else (
-            "airport" if "airport" in airports.columns else None
-        )
-        if name_col is None:
-            airports["airport_name"] = airports["iata_code"]
-            name_col = "airport_name"
-
-        airports["iata_code"] = airports["iata_code"].astype(str)
-
-        df_enriched = df_enriched.merge(
-            airports[["iata_code", name_col]].rename(
-                columns={"iata_code": "departure_iata", name_col: "departure_airport_name"}
-            ),
-            on="departure_iata",
-            how="left",
-        )
+    if 'arrival_delay' in df_enriched.columns:
+        df_enriched['is_delayed'] = pd.to_numeric(df_enriched['arrival_delay'], errors='coerce').fillna(0) > 0
     else:
-        df_enriched["departure_airport_name"] = "N/A"
-
-    # Columna derivada: ¿tuvo delay de salida?
-    if "departure_delay" in df_enriched.columns:
-        df_enriched["is_delayed"] = pd.to_numeric(
-            df_enriched["departure_delay"], errors="coerce"
-        ).fillna(0) > 0
-    else:
-        df_enriched["is_delayed"] = False
-
-    # flight_date a datetime (si es parseable)
-    if "flight_date" in df_enriched.columns:
-        df_enriched["flight_date"] = pd.to_datetime(
-            df_enriched["flight_date"], errors="coerce"
-        )
-
-    log("✅ Enriquecimiento completado.")
+        df_enriched['is_delayed'] = False
+    
+    log("✅ Limpieza y enriquecimiento completado.")
     return df_enriched
 
-
 def aggregate_flights(df: pd.DataFrame) -> pd.DataFrame:
-    """Agregación simple: cantidad de vuelos por estado."""
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["flight_status", "count"])
-    return df.groupby("flight_status", dropna=False).size().reset_index(name="count")
-
+    """Agrega datos por estado del vuelo."""
+    log("📊 Agregando datos por estado...")
+    if 'status' in df.columns:
+        return df.groupby('status').size().reset_index(name='count')
+    return pd.DataFrame()
 
 if __name__ == "__main__":
-    # 1) Carga
     df_flights_raw, df_airports_raw = load_data()
+    df_enriched = clean_and_enrich_data(df_flights_raw, df_airports_raw)
 
-    # 2) Transformaciones
-    df_clean = clean_flights(df_flights_raw)
-    df_enriched = enrich_flights(df_clean, df_airports_raw)
-
-    # 3) Selección de columnas (a prueba de KeyError)
-    desired_cols = [
-        "flight_date",
-        "flight_status",
-        "is_delayed",
-        "departure_iata",
-        "departure_airport_name",
-        "arrival_iata",
-        "aircraft_icao",
+    final_cols = [
+        "flight_date", "status", "is_delayed", "departure_iata_code", 
+        "departure_airport_name", "arrival_iata_code", "arrival_airport_name"
     ]
-    existing_cols = [c for c in desired_cols if c in df_enriched.columns]
-    missing = [c for c in desired_cols if c not in df_enriched.columns]
-    if missing:
-        log(f"⚠️ Columnas faltantes en df_enriched: {missing}. Continúo con las existentes.")
+    
+    for col in final_cols:
+        if col not in df_enriched.columns:
+            df_enriched[col] = pd.NA
+    
+    df_final = df_enriched[final_cols]
+    
+    df_final['flight_date'] = df_final['flight_date'].astype('string').fillna('unknown')
 
-    df_final = df_enriched[existing_cols].copy()
-
-    # 4) Partición: asegurar flight_date string YYYY-MM-DD (o 'unknown')
-    if "flight_date" in df_final.columns:
-        if pd.api.types.is_datetime64_any_dtype(df_final["flight_date"]):
-            df_final["flight_date"] = df_final["flight_date"].dt.date.astype("string")
-        df_final["flight_date"] = df_final["flight_date"].fillna("unknown").astype("string")
+    if not df_final.empty:
+        save_delta_table_robust(
+            df_final,
+            processed_enriched_path,
+            partition_cols=["flight_date"],
+            hard_overwrite=True
+        )
+        log(f"✅ Guardado DataFrame final en {processed_enriched_path}")
     else:
-        df_final["flight_date"] = "unknown"
+        log("⚠️ El DataFrame final está vacío, no se escribe la tabla enriquecida.")
 
-    # 5) Escritura Delta (hard overwrite para evitar conflictos de schema)
-    if os.path.exists(processed_enriched_path):
-        try:
-            shutil.rmtree(processed_enriched_path)
-            log(f"🧹 Eliminada tabla existente en {processed_enriched_path}.")
-        except Exception as e:
-            log(f"⚠️ No se pudo eliminar {processed_enriched_path}: {e}")
-
-    write_deltalake(processed_enriched_path, df_final, mode="overwrite", partition_by=["flight_date"])
-    log(f"✅ Guardado DataFrame final en {processed_enriched_path}")
-
-    # 6) (Opcional) Guardar agregación de estado
     df_agg = aggregate_flights(df_final)
     if not df_agg.empty:
-        if os.path.exists(agg_path):
-            try:
-                shutil.rmtree(agg_path)
-                log(f"🧹 Eliminada tabla existente en {agg_path}.")
-            except Exception as e:
-                log(f"⚠️ No se pudo eliminar {agg_path}: {e}")
-        write_deltalake(agg_path, df_agg, mode="overwrite")
-        log("✅ Guardada agregación por estado en Delta.")
-
-
+        save_delta_table_robust(
+            df_agg,
+            agg_path,
+            hard_overwrite=True
+        )
+        log(f"✅ Guardado DataFrame de agregación en {agg_path}")

@@ -1,2 +1,2 @@
-[DEFAULT]
-AVIATIONSTACK_API_KEY=tu_api_key_aqui
+[aviationstack]
+api_key = tu_api_key_aqui

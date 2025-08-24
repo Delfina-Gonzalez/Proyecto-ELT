@@ -3,3 +3,4 @@ pandas==2.3.2
 pyarrow==17.0.0
 deltalake==0.17.0
 configparser==7.2.0
+matplotlib
