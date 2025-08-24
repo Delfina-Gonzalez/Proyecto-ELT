@@ -33,19 +33,19 @@ def save_delta_table_robust(
     for col in df_pandas.columns:
         dtype = df_pandas[col].dtype
         if pd.api.types.is_numeric_dtype(dtype):
-            df_pandas[col] = df_pandas[col].astype('float64').fillna(0)
+            df_pandas.loc[:, col] = df_pandas[col].astype('float64').fillna(0)
         elif pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype):
-            df_pandas[col] = df_pandas[col].astype('string').fillna('')
+            df_pandas.loc[:, col] = df_pandas[col].astype('string').fillna('')
         elif pd.api.types.is_bool_dtype(dtype):
-            df_pandas[col] = df_pandas[col].astype('boolean').fillna(False)
+            df_pandas.loc[:, col] = df_pandas[col].astype('boolean').fillna(False)
         else:
-            df_pandas[col] = df_pandas[col].fillna('')
+            df_pandas.loc[:, col] = df_pandas[col].fillna('')
     
     if partition_cols:
         for col in partition_cols:
             if col not in df_pandas.columns:
-                raise ValueError(f"❌ Columna de partición '{col}' no existe en el DataFrame.")
-            df_pandas[col] = df_pandas[col].fillna("unknown").astype("string")
+                df_pandas[col] = "unknown"
+            df_pandas.loc[:, col] = df_pandas[col].fillna("unknown").astype("string")
 
     if hard_overwrite and os.path.exists(path):
         try:
@@ -85,9 +85,11 @@ def clean_and_enrich_data(df_flights: pd.DataFrame, df_airports: pd.DataFrame) -
     """Realiza la limpieza y el enriquecimiento de los datos de vuelos."""
     log("🧹 Limpiando y aplanando DataFrame de vuelos...")
     
+    # 1. Aplanar las columnas anidadas
     for col in ["departure", "arrival", "airline", "flight", "aircraft", "live"]:
         df_flights = clean_and_normalize(df_flights, col)
 
+    # 2. Renombrar columnas para unirse correctamente
     df_flights.rename(columns={
         'departure_iata': 'departure_iata_code',
         'arrival_iata': 'arrival_iata_code',
@@ -96,27 +98,31 @@ def clean_and_enrich_data(df_flights: pd.DataFrame, df_airports: pd.DataFrame) -
         'flight_date': 'flight_date',
         'flight_status': 'status'
     }, inplace=True)
-
-    log("🤝 Enriqueciendo datos...")
     
-    # Asegurar que las columnas de unión existan
+    # 3. Asegurar que las columnas de unión existan antes del merge (corrección clave)
     required_cols = ['departure_iata_code', 'arrival_iata_code']
     for col in required_cols:
         if col not in df_flights.columns:
+            log(f"⚠️ Columna '{col}' no encontrada en el DataFrame de vuelos; se creará con valores nulos.")
             df_flights[col] = pd.NA
 
+    log("🤝 Enriqueciendo datos...")
+    
+    # 4. Unir con la tabla de aeropuertos de salida
     df_airports_dep = df_airports.rename(columns={
         "iata_code": "departure_iata_code",
         "airport_name": "departure_airport_name"
     })
     df_enriched = pd.merge(df_flights, df_airports_dep, on="departure_iata_code", how="left")
 
+    # 5. Unir con la tabla de aeropuertos de llegada
     df_airports_arr = df_airports.rename(columns={
         "iata_code": "arrival_iata_code",
         "airport_name": "arrival_airport_name"
     })
     df_enriched = pd.merge(df_enriched, df_airports_arr, on="arrival_iata_code", how="left")
 
+    # 6. Crear la columna de retraso
     if 'arrival_delay' in df_enriched.columns:
         df_enriched['is_delayed'] = pd.to_numeric(df_enriched['arrival_delay'], errors='coerce').fillna(0) > 0
     else:
@@ -147,7 +153,7 @@ if __name__ == "__main__":
     
     df_final = df_enriched[final_cols]
     
-    df_final['flight_date'] = df_final['flight_date'].astype('string').fillna('unknown')
+    df_final.loc[:, 'flight_date'] = df_final['flight_date'].astype('string').fillna('unknown')
 
     if not df_final.empty:
         save_delta_table_robust(

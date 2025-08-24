@@ -69,8 +69,8 @@ if __name__ == "__main__":
     airports_path = os.path.join(base_path, "data_lake", "airports", "airports_raw.parquet")
 
     # Extraer y guardar vuelos
-    df_flights = extract_data("flights")
-    if not df_flights.empty:
+    df_flights = extract_data("flights", params={"flight_status": "landed"})
+    if df_flights is not None and not df_flights.empty:
         ensure_dir(os.path.dirname(flights_path))
         df_flights.to_parquet(flights_path, index=False)
         log(f"✅ Extracción de vuelos exitosa. {len(df_flights)} filas guardadas.")
