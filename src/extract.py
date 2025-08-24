@@ -1,54 +1,39 @@
+import os
+import time
 import requests
 import pandas as pd
-import configparser
-from utils import log, extract_datetime_from_dict, ensure_dir
+from utils import log, ensure_dir
+from typing import Optional, Dict
 
-# ----------------------------
-# Leer API Key desde pipeline.config
-# ----------------------------
-config = configparser.ConfigParser()
-config.read("pipeline.config")
-API_KEY = config["DEFAULT"]["AVIATIONSTACK_API_KEY"]
+def extract_data(endpoint: str, params: Optional[Dict] = None, max_retries: int = 3) -> pd.DataFrame:
+    url = f"{BASE_URL}/{endpoint}"
+    params = params or {}
+    params["access_key"] = API_KEY
 
-ensure_dir("data_lake/flights")
-ensure_dir("data_lake/airports")
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(url, params=params, timeout=15)
+            if response.status_code == 200:
+                data = response.json().get("data", [])
+                if not data:
+                    log(f"⚠️ {endpoint}: sin datos en la respuesta.")
+                return pd.DataFrame(data)
 
-# ----------------------------
-# Endpoint temporal: vuelos
-# ----------------------------
-url_flights = f"http://api.aviationstack.com/v1/flights?access_key={API_KEY}"
-try:
-    response_flights = requests.get(url_flights)
-    response_flights.raise_for_status()
-    data_flights = response_flights.json()
-    df_flights = pd.DataFrame(data_flights.get("data", []))
-    
-    # Extraer fecha de salida
-    if "departure" in df_flights.columns:
-        df_flights["flight_date"] = df_flights["departure"].apply(lambda x: extract_datetime_from_dict(x))
+            elif response.status_code == 401:
+                log("❌ API Key inválida o no configurada. Revisa AVIATIONSTACK_API_KEY.")
+                break
 
-    log(f"✅ DataFrame flights válido: {len(df_flights)} registros, columnas: {list(df_flights.columns)}")
-    
-    # Guardar crudo
-    df_flights.to_parquet("data_lake/flights/flights_raw.parquet", engine="pyarrow", index=False)
+            elif response.status_code == 429:
+                log(f"⚠️ Límite de rate en {endpoint}. Reintento {attempt}/{max_retries}...")
+                time.sleep(2 * attempt)
 
-except Exception as e:
-    log(f"[ERROR] Al extraer vuelos: {e}")
+            else:
+                log(f"❌ Error {response.status_code} en {endpoint}: {response.text}")
+                break
 
-# ----------------------------
-# Endpoint estático: aeropuertos
-# ----------------------------
-url_airports = f"http://api.aviationstack.com/v1/airports?access_key={API_KEY}"
-try:
-    response_airports = requests.get(url_airports)
-    response_airports.raise_for_status()
-    data_airports = response_airports.json()
-    df_airports = pd.DataFrame(data_airports.get("data", []))
+        except Exception as e:
+            log(f"❌ Excepción en {endpoint}, intento {attempt}: {e}")
+            time.sleep(2 * attempt)
 
-    log(f"✅ DataFrame airports válido: {len(df_airports)} registros, columnas: {list(df_airports.columns)}")
-    
-    # Guardar crudo
-    df_airports.to_parquet("data_lake/airports/airports_raw.parquet", engine="pyarrow", index=False)
-
-except Exception as e:
-    log(f"[ERROR] Al extraer aeropuertos: {e}")
+    log(f"⚠️ No se pudo extraer datos de {endpoint} tras {max_retries} intentos.")
+    return pd.DataFrame()

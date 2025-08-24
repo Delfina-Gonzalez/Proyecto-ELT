@@ -11,6 +11,8 @@ __pycache__/
 # --- Entornos virtuales ---
 proyectoELT/
 .proyectoELT/
+venv/
+.venv/
 
 # --- Archivos de configuración ---
 *.ini
