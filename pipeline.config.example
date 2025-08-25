@@ -1,2 +1,21 @@
+# Archivo de configuración para el pipeline ETL
+# ------------------------------------------------
+# Completá 'api_key' con tu clave de AviationStack.
+# Podés definir también la variable de entorno AVIATIONSTACK_API_KEY;
+# si existe, tendrá prioridad sobre este archivo.
+
 [aviationstack]
-api_key = tu_api_key_aqui
+api_key = TU_CLAVE
+
+[urls]
+# La versión gratuita de AviationStack usa HTTP.
+# Si tu plan soporta HTTPS, podés cambiarlo a "https://api.aviationstack.com/v1"
+api_url_base = http://api.aviationstack.com/v1
+
+[paths]
+# Ruta del data lake (por defecto: carpeta 'data_lake' en el proyecto)
+data_lake = ./data_lake
+
+[state]
+# Fecha de última ejecución para extracción incremental de vuelos (YYYY-MM-DD)
+last_flights_run = 2020-01-01
