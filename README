@@ -52,8 +52,33 @@ Proyecto-ELT/
 ├── requirements.txt # Dependencias
 └── README.md # Documentación
 
+---
+## Instalación
+
+Para obtener una copia local de este proyecto, sigue estos pasos.
+
+### Requisitos previos
+
+Necesitas tener Python y `pip` instalados en tu máquina.
+
+### Clonar el repositorio
+
+Abre tu terminal o línea de comandos y ejecuta el siguiente comando para clonar el repositorio:
+
+```bash
+
+git clone https://github.com/Delfina-Gonzalez/ELT-with-APIREST.git
+
+cd ELT-with-APIREST
+
+pip install -r requirements.txt (se recomienda crear un entorno virtual)
+
+---
+
+
 ▶️ ## Uso
-1. Extracción y Carga
+
+### 1. Extracción y Carga
 
 Abrir y ejecutar el notebook 01_extracción.ipynb:
 
@@ -63,7 +88,7 @@ Guarda cada dataset en formato Delta Lake dentro de data/raw/.
 
 Usa extracción incremental para endpoints dinámicos y full para estáticos.
 
-2. Transformación
+### 2. Transformación
 
 Abrir y ejecutar el notebook 02_transformación.ipynb:
 
