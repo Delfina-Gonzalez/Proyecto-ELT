@@ -1,0 +1,85 @@
+# 🚀 Proyecto ELT con SpaceX API  
+
+Delfina González
+Trabajo integrador – Data Engineering, Centro de e-Learning UTN
+
+---
+
+## 📌 Descripción  
+
+Este proyecto implementa un **pipeline de Extracción, Carga y Transformación (ELT)** utilizando la **API pública de SpaceX**.  
+
+Se cumplen los objetivos de la consigna:  
+- Extracción de **múltiples endpoints** de la API.  
+- Diferenciación entre **datos dinámicos (temporales)** y **datos estáticos**.  
+- Almacenamiento en **formato Delta Lake** con particiones por fecha (extracción incremental).  
+- Procesamiento y transformaciones de datos con **Pandas**.  
+- Modularización del código siguiendo buenas prácticas de ingeniería de datos.  
+
+---
+
+## 🔗 Endpoints utilizados (SpaceX API)
+
+- **Dinámicos (se actualizan con el tiempo):**
+  - `/launches/latest` → Último lanzamiento.  
+  - `/launches/upcoming` → Próximos lanzamientos.  
+
+- **Estáticos (cambian rara vez):**
+  - `/rockets` → Información de cohetes.  
+  - `/dragons` → Información de cápsulas Dragon.  
+
+---
+
+## 📂 Estructura del proyecto
+
+Proyecto-ELT/
+│
+├── data/ # Data Lake simulado
+│ ├── raw/ # Extracciones crudas (Delta Lake)
+│ └── processed/ # Datos transformados
+│
+├── notebooks/ # Jupyter Notebooks
+│ ├── 01_extracción.ipynb
+│ └── 02_transformación.ipynb
+│
+├── src/ # Código modular
+│ ├── config.py
+│ ├── extract.py
+│ ├── load.py
+│ ├── transform.py
+│ └── utils.py
+│
+├── requirements.txt # Dependencias
+└── README.md # Documentación
+
+▶️ ## Uso
+1. Extracción y Carga
+
+Abrir y ejecutar el notebook 01_extracción.ipynb:
+
+Descarga los datasets desde la API de SpaceX.
+
+Guarda cada dataset en formato Delta Lake dentro de data/raw/.
+
+Usa extracción incremental para endpoints dinámicos y full para estáticos.
+
+2. Transformación
+
+Abrir y ejecutar el notebook 02_transformación.ipynb:
+
+Aplica las siguientes transformaciones con Pandas:
+
+Eliminación de duplicados.
+
+Manejo de nulos.
+
+Renombrado de columnas.
+
+Conversión de tipos.
+
+Creación de nueva columna.
+
+Unión (JOIN) entre DataFrames.
+
+Guarda resultados en data/processed/.
+

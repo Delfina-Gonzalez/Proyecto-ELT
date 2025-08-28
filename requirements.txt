@@ -1,0 +1,5 @@
+jupyter
+pyspark
+delta-spark
+pandas
+requests

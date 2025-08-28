@@ -1,0 +1,52 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# --- Entornos virtuales ---
+venv/
+.venv/
+
+# --- Archivos de configuración ---
+*.ini
+*.cfg
+*.toml
+*.json
+*.yaml
+*.yml
+pipeline.config
+.env
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints/
+
+# --- Archivos de sistema ---
+.DS_Store
+Thumbs.db
+
+# --- Datos locales ---
+data/
+*.csv
+*.parquet
+*.delta
+*.db
+
+# --- Credenciales y variables de entorno ---
+.env
+.env.local
+.env.*.local
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Resultados temporales ---
+tmp/
+.cache/
